@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+bridge.log
+.venv/
+backup/
+.DS_Store

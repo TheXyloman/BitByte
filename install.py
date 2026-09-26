@@ -15,15 +15,15 @@ import sys
 import venv
 
 ROOT = Path(__file__).resolve().parent
-CODEX_EVENTS = ("UserPromptSubmit", "PostToolUse", "PermissionRequest", "Stop", "Interrupt", "SessionEnd")
-CLAUDE_EVENTS = ("UserPromptSubmit", "PostToolUse", "PermissionRequest", "Notification",
-                 "PostToolUseFailure", "StopFailure", "Stop", "SessionEnd")
+CODEX_EVENTS = ("UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop", "Interrupt", "SessionEnd")
+CLAUDE_EVENTS = ("UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Notification",
+                 "PostToolUseFailure", "StopFailure", "Stop", "SessionEnd", "Elicitation", "ElicitationResult")
 MARKERS = ("tufty-ai-pet/hook.py", "tufty-ai-pet/approval_hook.py")
 
 
 def command(python: Path, source: str, event: str) -> str:
     runtime = python.parent.parent.parent
-    script = "approval_hook.py" if event == "PermissionRequest" else "hook.py"
+    script = "hook.py"
     parts = [str(python), str(runtime / script), source]
     if os.name == "nt":
         return subprocess.list2cmdline(parts)
@@ -31,19 +31,28 @@ def command(python: Path, source: str, event: str) -> str:
 
 
 def group(python: Path, source: str, event: str) -> dict:
-    timeout = 80 if event == "PermissionRequest" else (3 if event in {"SessionEnd", "Interrupt"} else 5)
+    timeout = 3 if event in {"SessionEnd", "Interrupt"} else 5
     return {"hooks": [{"type": "command", "command": command(python, source, event), "timeout": timeout}]}
 
 
 def update_hooks(data: dict, events: tuple[str, ...], python: Path, source: str) -> dict:
     hooks = data.setdefault("hooks", {})
+    # Remove only our handlers, even from mixed groups or obsolete event registrations.
+    for event, existing in hooks.items():
+        retained = []
+        for item in existing:
+            if not isinstance(item, dict):
+                retained.append(item)
+                continue
+            handlers = item.get("hooks", [])
+            cleaned = [handler for handler in handlers if not (
+                isinstance(handler, dict) and any(marker in handler.get("command", "").replace("\\", "/")
+                                                 for marker in MARKERS))]
+            if cleaned or not handlers:
+                retained.append({**item, "hooks": cleaned})
+        hooks[event] = retained
     for event in events:
-        existing = hooks.setdefault(event, [])
-        existing[:] = [item for item in existing if not any(
-            any(marker in handler.get("command", "").replace("\\", "/") for marker in MARKERS)
-            for handler in item.get("hooks", []) if isinstance(handler, dict)
-        )]
-        existing.append(group(python, source, event))
+        hooks.setdefault(event, []).append(group(python, source, event))
     return data
 
 
@@ -73,8 +82,13 @@ def install_hooks(home: Path, python: Path) -> None:
 
 def install_venv(runtime: Path) -> Path:
     runtime.mkdir(parents=True, exist_ok=True)
-    for name in ("bridge.py", "hook.py", "approval_hook.py", "pet.py", "requirements.txt"):
+    for name in ("bridge.py", "hook.py", "observer.py", "pet.py", "requirements.txt"):
         shutil.copy2(ROOT / name, runtime / name)
+    # A running assistant may retain the old hook command until it restarts.
+    # Keep only a non-blocking forwarder; the old decision/wait implementation is gone.
+    (runtime / "approval_hook.py").write_text(
+        '"""Compatibility entrypoint for cached pre-upgrade hook definitions."""\n'
+        'from hook import main\n\nif __name__ == "__main__":\n    main()\n', encoding="utf-8")
     env = runtime / ".venv"
     python = env / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     if not python.exists():
@@ -86,8 +100,7 @@ def install_venv(runtime: Path) -> Path:
 def install_autostart(home: Path, python: Path, port: str | None) -> None:
     runtime = python.parent.parent.parent
     args = [str(python), str(runtime / "bridge.py")]
-    if port:
-        args += ["--port", port]
+    # Startup always discovers USB devices; never pin the setup-time port.
     if sys.platform == "darwin":
         label = "com.codex.tufty-ai-pet"
         path = home / "Library" / "LaunchAgents" / (label + ".plist")
@@ -120,7 +133,7 @@ def install_autostart(home: Path, python: Path, port: str | None) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", help="Use a specific USB serial port")
+    parser.add_argument("--port", help="Deprecated setup hint; startup always discovers USB devices")
     parser.add_argument("--no-autostart", action="store_true", help="Install hooks but launch the bridge manually")
     args = parser.parse_args()
     if sys.platform != "darwin" and os.name != "nt":

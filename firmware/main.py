@@ -11,9 +11,7 @@ from pimoroni import Button
 
 display = PicoGraphics(display=DISPLAY_TUFTY_2040)
 decoder = jpegdec.JPEG(display)
-button_a = Button(7, invert=False)
 button_b = Button(8, invert=False)
-button_c = Button(9, invert=False)
 button_up = Button(22, invert=False)
 button_down = Button(6, invert=False)
 poller = select.poll()
@@ -42,7 +40,7 @@ interaction = None
 interaction_started = 0
 focus_mode = False
 status_until = 0
-was_pressed = {"A": False, "B": False, "C": False, "UP": False, "DOWN": False}
+was_pressed = {"B": False, "UP": False, "DOWN": False}
 line = bytearray()
 shown_mood = None
 shown_frame = -1
@@ -60,7 +58,7 @@ def read_usb():
             if command == "HELLO":
                 sys.stdout.write("TUFTY_PET/1\n")
             elif command in ("S idle", "S working", "S attention", "S approval", "S error", "S done"):
-                new_state = command[2:]
+                new_state = "attention" if command == "S approval" else command[2:]
                 if new_state != state:
                     # A new live mood is more useful than an old manual status card.
                     status_until = 0
@@ -143,15 +141,11 @@ while True:
     read_usb()
     if time.ticks_diff(now, last_host) > 45000:
         state = "idle"
-    for name, button in (("A", button_a), ("B", button_b), ("C", button_c),
+    for name, button in (("B", button_b),
                          ("UP", button_up), ("DOWN", button_down)):
         pressed = button.is_pressed
         if pressed and not was_pressed[name]:
-            if name == "A" and state == "approval":
-                sys.stdout.write("BUTTON A\n")
-            elif name == "C" and state == "approval":
-                sys.stdout.write("BUTTON C\n")
-            elif name == "B" and state != "approval":
+            if name == "B":
                 status_until = time.ticks_add(now, STATUS_TIME_MS)
                 shown_mood = None
             elif name == "UP":

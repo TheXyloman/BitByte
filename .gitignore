@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
-bridge.log
 .venv/
+bridge.log*
+state.json
+state.tmp
 backup/
-.DS_Store

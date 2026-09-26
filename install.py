@@ -19,6 +19,7 @@ CODEX_EVENTS = ("UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequ
 CLAUDE_EVENTS = ("UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Notification",
                  "PostToolUseFailure", "StopFailure", "Stop", "SessionEnd", "Elicitation", "ElicitationResult")
 MARKERS = ("tufty-ai-pet/hook.py", "tufty-ai-pet/approval_hook.py")
+LABEL = "com.codex.tufty-ai-pet"
 
 
 def command(python: Path, source: str, event: str) -> str:
@@ -67,23 +68,66 @@ def backup_and_write(path: Path, data: dict) -> None:
     temp.replace(path)
 
 
-def install_hooks(home: Path, python: Path) -> None:
-    codex_path = home / ".codex" / "hooks.json"
-    claude_path = home / ".claude" / "settings.json"
-    for path, events, source in ((codex_path, CODEX_EVENTS, "codex"),
-                                 (claude_path, CLAUDE_EVENTS, "claude")):
+def hook_paths(home: Path) -> tuple[tuple[Path, tuple[str, ...], str], ...]:
+    """The wizard deliberately configures both assistants, whether installed yet or not."""
+    return ((home / ".codex" / "hooks.json", CODEX_EVENTS, "codex"),
+            (home / ".claude" / "settings.json", CLAUDE_EVENTS, "claude"))
+
+
+def _read_hook_file(path: Path) -> dict:
+    try:
         data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-        if not isinstance(data, dict):
-            raise ValueError("Expected a JSON object in " + str(path))
+    except (OSError, ValueError) as exc:
+        raise ValueError("Could not read valid JSON from " + str(path)) from exc
+    if not isinstance(data, dict):
+        raise ValueError("Expected a JSON object in " + str(path))
+    return data
+
+
+def _write_hook_updates(updates: list[tuple[Path, dict]]) -> None:
+    """Write all validated hook files or restore every original file on an I/O failure."""
+    originals: dict[Path, bytes | None] = {path: path.read_bytes() if path.exists() else None for path, _ in updates}
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    created: list[Path] = []
+    try:
+        for path, _ in updates:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if originals[path] is not None:
+                backup = path.with_name(path.name + ".bak-" + stamp)
+                backup.write_bytes(originals[path])
+                print("Backed up", path, "to", backup)
+        for path, data in updates:
+            temp = path.with_name(path.name + ".tufty-tmp")
+            temp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            temp.replace(path)
+            created.append(path)
+    except OSError:
+        for path in created:
+            try:
+                if originals[path] is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    path.write_bytes(originals[path])
+            except OSError:
+                pass
+        raise
+
+
+def install_hooks(home: Path, python: Path) -> None:
+    updates = []
+    for path, events, source in hook_paths(home):
+        data = _read_hook_file(path)
         update_hooks(data, events, python, source)
-        backup_and_write(path, data)
+        updates.append((path, data))
+    _write_hook_updates(updates)
+    for path, events, source in hook_paths(home):
         print("Installed", source, "hooks:", ", ".join(events))
 
 
-def install_venv(runtime: Path) -> Path:
+def install_venv(runtime: Path, bundle: Path = ROOT) -> Path:
     runtime.mkdir(parents=True, exist_ok=True)
     for name in ("bridge.py", "hook.py", "observer.py", "pet.py", "requirements.txt"):
-        shutil.copy2(ROOT / name, runtime / name)
+        shutil.copy2(bundle / name, runtime / name)
     # A running assistant may retain the old hook command until it restarts.
     # Keep only a non-blocking forwarder; the old decision/wait implementation is gone.
     (runtime / "approval_hook.py").write_text(
@@ -93,7 +137,11 @@ def install_venv(runtime: Path) -> Path:
     python = env / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     if not python.exists():
         venv.EnvBuilder(with_pip=True).create(env)
-    subprocess.run([str(python), "-m", "pip", "install", "-r", str(runtime / "requirements.txt")], check=True)
+    wheelhouse = bundle / "vendor"
+    pip = [str(python), "-m", "pip", "install", "-r", str(runtime / "requirements.txt")]
+    if wheelhouse.is_dir():
+        pip.extend(["--no-index", "--find-links", str(wheelhouse)])
+    subprocess.run(pip, check=True)
     return python
 
 
@@ -102,7 +150,7 @@ def install_autostart(home: Path, python: Path, port: str | None) -> None:
     args = [str(python), str(runtime / "bridge.py")]
     # Startup always discovers USB devices; never pin the setup-time port.
     if sys.platform == "darwin":
-        label = "com.codex.tufty-ai-pet"
+        label = LABEL
         path = home / "Library" / "LaunchAgents" / (label + ".plist")
         path.parent.mkdir(parents=True, exist_ok=True)
         log = runtime / "bridge.log"
@@ -131,21 +179,57 @@ def install_autostart(home: Path, python: Path, port: str | None) -> None:
         raise SystemExit("Automatic startup is implemented for macOS and Windows only")
 
 
+def stop_autostart(home: Path) -> None:
+    """Stop our bridge before a firmware transfer claims its serial port."""
+    if sys.platform == "darwin":
+        subprocess.run(["launchctl", "bootout", "gui/" + str(os.getuid()) + "/" + LABEL], capture_output=True)
+    elif os.name == "nt":
+        subprocess.run(["schtasks", "/End", "/TN", "TuftyAIPet"], capture_output=True)
+
+
+def uninstall_hooks(home: Path) -> None:
+    updates = []
+    for path, _, _ in hook_paths(home):
+        if not path.exists():
+            continue
+        data = _read_hook_file(path)
+        update_hooks(data, (), Path("/not-used"), "unused")
+        updates.append((path, data))
+    if updates:
+        _write_hook_updates(updates)
+
+
+def uninstall(home: Path | None = None) -> None:
+    home = home or Path.home()
+    stop_autostart(home)
+    if sys.platform == "darwin":
+        (home / "Library" / "LaunchAgents" / (LABEL + ".plist")).unlink(missing_ok=True)
+    elif os.name == "nt":
+        subprocess.run(["schtasks", "/Delete", "/TN", "TuftyAIPet", "/F"], capture_output=True)
+    uninstall_hooks(home)
+
+
+def install_current(*, no_autostart: bool = False, bundle: Path = ROOT) -> Path:
+    """Reusable host install used by the wizard and the legacy command line."""
+    if sys.platform != "darwin" and os.name != "nt":
+        raise SystemExit("Automatic setup is implemented for macOS and Windows only")
+    if sys.platform == "darwin":
+        runtime = Path.home() / "Library" / "Application Support" / "tufty-ai-pet"
+    else:
+        runtime = Path(os.environ["LOCALAPPDATA"]) / "tufty-ai-pet"
+    python = install_venv(runtime, bundle)
+    install_hooks(Path.home(), python)
+    if not no_autostart:
+        install_autostart(Path.home(), python, None)
+    return python
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", help="Deprecated setup hint; startup always discovers USB devices")
     parser.add_argument("--no-autostart", action="store_true", help="Install hooks but launch the bridge manually")
     args = parser.parse_args()
-    if sys.platform != "darwin" and os.name != "nt":
-        raise SystemExit("This installer supports macOS and Windows")
-    if sys.platform == "darwin":
-        runtime = Path.home() / "Library" / "Application Support" / "tufty-ai-pet"
-    else:
-        runtime = Path(os.environ["LOCALAPPDATA"]) / "tufty-ai-pet"
-    python = install_venv(runtime)
-    install_hooks(Path.home(), python)
-    if not args.no_autostart:
-        install_autostart(Path.home(), python, args.port)
+    install_current(no_autostart=args.no_autostart)
     print("Next: connect and flash the Tufty, then review/trust the new Codex hooks with /hooks.")
 
 

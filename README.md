@@ -32,13 +32,17 @@ Attention takes priority over errors, work, and completion across sessions. A ma
 - Codex transcript formats are not a stable API. Unknown record types are ignored. Existing session files are followed from their end on the first run, so old conversations are not replayed. Once running, metadata checkpoints preserve pending requests and file positions across restarts. Start a new turn after first installation to establish tracking.
 - A crashed assistant that emits no termination event may leave a tracked request or working state. Silence is not treated as proof of completion. A new prompt or session termination clears the old request.
 
-## Set up or upgrade on macOS and Windows
+## Easy setup on macOS and Windows
 
-1. Connect a **Tufty 2040** using a data-capable USB cable. If required, install Pimoroni's [Tufty MicroPython UF2](https://github.com/pimoroni/pimoroni-pico/releases) using their [setup guide](https://github.com/pimoroni/pimoroni-pico/blob/main/setting-up-micropython.md).
-2. Copy `firmware/main.py`, `firmware/frames/`, and `firmware/interactions/` to the board using Thonny. Back up the board's existing `main.py` first, then restart it. Close Thonny when finished so it releases the serial port.
-3. Run `python3 install.py` on macOS or `py -3 install.py` on Windows. The installer updates the user runtime, hooks, and login startup. It replaces the old blocking approval adapter with a non-blocking compatibility entrypoint for assistants that have cached the old command, and preserves unrelated hooks, including handlers sharing a group. The compatibility entrypoint only reports attention; it cannot approve or reject anything.
-4. Review/trust the changed Codex hooks using `/hooks`. Restart Codex and Claude Code if needed to reload hook settings.
-5. Submit a prompt. Run `python3 bridge.py --demo` (Windows: `py -3 bridge.py --demo`) to send example moods to the running bridge.
+Download and unzip a BitByte release, then double-click **`BitByte.command`** on macOS or **`BitByte-Setup.cmd`** on Windows. The guided setup uses scripts rather than a signed app or installer. It needs Python 3.10 or newer, but bundles its other Python dependencies and Tufty firmware for offline installation.
+
+The wizard can install/repair the laptop integration, configure both Codex and Claude Code hooks, flash the Tufty, and remove BitByte's laptop integration. It keeps a detailed diagnostic log visible if something fails. A firmware flash is destructive: when the current board can be read, the wizard creates a required ZIP backup in `~/Documents/BitByte Backups` before it allows flashing. A board already in `RPI_RP2` bootloader mode has no readable filesystem to back up and is treated as a fresh board.
+
+For firmware setup, connect a **Tufty 2040** with a data-capable USB cable. When prompted, hold **BOOTSEL**, tap **RESET**, then release BOOTSEL. The wizard waits for the `RPI_RP2` drive, copies its pinned Pimoroni MicroPython UF2, uploads BitByte's firmware assets, and verifies the `TUFTY_PET/1` handshake. Close Thonny or another serial terminal first if the board appears busy.
+
+Unsigned scripts can still get a one-time operating-system warning. On macOS use Finder's **Open** / **Open Anyway** for the downloaded launcher; on Windows use **More info → Run anyway** only when the ZIP came from BitByte's release page. This is an unavoidable consequence of deliberately not using signing certificates.
+
+The legacy advanced setup remains available: run `python3 install.py` on macOS or `py -3 install.py` on Windows. It updates the user runtime, both assistant hook files, and login startup. Review/trust the changed Codex hooks using `/hooks`, then restart Codex and Claude Code if they were already running. Run `python3 bridge.py --demo` (Windows: `py -3 bridge.py --demo`) to send example moods to the running bridge.
 
 ### Plug-and-play USB
 
@@ -70,6 +74,7 @@ Manual checks:
 - Unplug/reconnect through a different USB port or hub; confirm the current mood returns automatically.
 - Start the bridge without the Tufty, then connect it. Repeat after restarting the laptop.
 - Repeat on Windows to verify COM-number changes and login startup.
+- On a clean Windows and macOS user profile with Python installed, unzip a release and complete setup without a network connection. Exercise a successful backup/reflash, a busy serial port, a missing `RPI_RP2` volume, and Uninstall; unrelated assistant hooks must remain intact.
 
 ## Files
 
@@ -78,5 +83,8 @@ Manual checks:
 - `observer.py`: bounded JSONL reader and Codex session adapter.
 - `bridge.py`: event processing, checkpoints, diagnostics, and USB recovery.
 - `install.py`: hook migration and login startup installation.
+- `setup_wizard.py` / `setup_services.py`: the unsigned guided setup, backup, and firmware deployment flow.
+- `BitByte.command` / `BitByte-Setup.cmd`: double-click launchers for macOS and Windows.
+- `scripts/build_release.py`: creates an offline release ZIP and SHA-256 checksum.
 - `firmware/`: display firmware and existing animation assets.
 - `tests/`: event, state, observer, installer, and USB regression tests.

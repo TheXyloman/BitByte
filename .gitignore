@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+bridge.log*
+state.json
+state.tmp
+backup/

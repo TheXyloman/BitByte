@@ -2,7 +2,9 @@
   "files": {
     "BitByte-Setup.cmd": "11852771f1fb7bfc62cba485ba0254064a9e22f68c72012f5c35db9f97743f6a",
     "BitByte.command": "47ab1b00e61ee144089276ecccaf6643627967c7087952fb6148cf711e0692e7",
-    "README.md": "3a50aec0fbb5431f25b5202bc56b035c66c449b12ce119f3772d1d82ffe6d936",
+    "LICENSE": "d92965aa6fbbc7d4b6dc5d71739d7181d665e278d27570a7bd04f8d919f0a44a",
+    "README.md": "ab62fb380de43853a7587582ccd71060b1785f4a2345295f7567a2d710c1df87",
+    "THIRD_PARTY_NOTICES.md": "b5dcf6047dfd6d3aefd094482590d2a9794850a14700b628b7972d898e1d8722",
     "approval_hook.py": "d150c175fe9353ea34c733b39492a8112906ce96d5abf32391e50d0bf6d5eb2b",
     "bridge.py": "87c1ea27eac5c770c46558f9251ecaee4168d3a119e4457cf7b40cae72e0bc37",
     "firmware/frames/approval/1.jpg": "41efab1cbc48c70daded7536c61625128f42b7f988883f36c76d2d1a096e71ca",

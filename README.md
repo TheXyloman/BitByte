@@ -88,3 +88,9 @@ Manual checks:
 - `scripts/build_release.py`: creates an offline release ZIP and SHA-256 checksum.
 - `firmware/`: display firmware and existing animation assets.
 - `tests/`: event, state, observer, installer, and USB regression tests.
+
+## License
+
+BitByte is available under the [MIT License](LICENSE). The release ZIP includes
+offline third-party dependencies and a Pimoroni firmware image; their upstream
+licenses are listed in [Third-party notices](THIRD_PARTY_NOTICES.md).

@@ -15,6 +15,7 @@ DIST = ROOT / "dist"
 INCLUDED = (
     "BitByte.command", "BitByte-Setup.cmd", "setup_wizard.py", "setup_services.py", "install.py",
     "bridge.py", "hook.py", "observer.py", "pet.py", "approval_hook.py", "requirements.txt", "README.md",
+    "LICENSE", "THIRD_PARTY_NOTICES.md",
 )
 DIRECTORIES = ("firmware", "vendor")
 
